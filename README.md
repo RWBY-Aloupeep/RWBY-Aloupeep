@@ -8,9 +8,13 @@
   </em>
 </p>
 
+---
+
 - 🔬 Current focus: differentiable fluid simulation 
 - 📫 Contact: **rwbyaloupeep@gmail.com**  
 - 🌐 Website: **https://rwby-aloupeep.github.io**
+
+---
 
 ### Tools & Languages
 <p align="left">
