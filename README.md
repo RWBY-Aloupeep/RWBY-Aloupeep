@@ -12,7 +12,7 @@
 
 - 🔬 Current focus: differentiable fluid simulation 
 - 📫 Contact: **rwbyaloupeep@gmail.com**  
-- 🌐 Website: **https://rwby-aloupeep.github.io**
+- 🌐 Website: <a href="https://rwby-aloupeep.github.io" target="_blank">**rwby-aloupeep.github.io**</a>
 
 ---
 
