@@ -4,7 +4,7 @@
 
 <p align="center">
   <em>
-    Physics-Based Simulation · Differentiable Simulation · Visual Computing · Scientific Computing · AI
+    Physics-Based Simulation · Differentiable Simulation · Graphics & Robotics · AI
   </em>
 </p>
 
