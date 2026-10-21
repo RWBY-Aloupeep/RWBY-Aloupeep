@@ -136,7 +136,7 @@ def flow_field():
 # --------------------------------------------------------------------------- dye tracing
 
 M = 16        # animation frames per shedding period; dye is released once per frame
-LIFE = 48     # frames a dye particle is followed (long enough to leave the canvas)
+LIFE = 60     # frames a dye particle is followed (long enough that ~95% have left the canvas)
 SUB = 8       # RK2 substeps per frame
 SHOWN = 3.0   # seconds per shedding period on screen
 
@@ -206,6 +206,7 @@ def animate(attr, values, **extra):
 
 HAZE_BLOCK = 5    # lattice cells per haze texel; the browser's smooth upscaling does the rest
 HAZE_LEFT = 470   # canvas x where the haze (and the flow) starts
+HAZE_AQ = 60     # WebP alpha quality: lossless alpha keeps the empty background truly empty
 
 
 def vorticity(ux, uy):
@@ -213,7 +214,8 @@ def vorticity(ux, uy):
     n = len(ux)
     x0 = int(CX + (HAZE_LEFT - ORIGIN[0]) / PX)
     x1 = int(CX + (W - ORIGIN[0]) / PX) + HAZE_BLOCK
-    y0, y1 = 0, NY - NY % HAZE_BLOCK
+    half = 6 * R - (6 * R) % HAZE_BLOCK          # the wake never strays further than this
+    y0, y1 = CY - half, CY + half
     x1 -= (x1 - x0) % HAZE_BLOCK
     y, x = np.mgrid[0:NY, 0:NX]
     # fade out the wall's boundary layer, which would otherwise swamp the scale and glow blockily
@@ -239,10 +241,12 @@ def haze_images(frames, c, alpha):
     rgb_b = np.array([int(c["b"][i:i + 2], 16) for i in (1, 3, 5)])
     out = []
     for om in frames:
-        mag = np.clip(np.abs(om) / ref, 0, 1) ** 0.9
+        # smoothstep from 8% to 60% of the reference: the lattice's faint acoustic noise drops out
+        t = np.clip((np.abs(om) / ref - 0.08) / 0.52, 0, 1)
+        mag = t * t * (3 - 2 * t)
         rgba = np.concatenate([np.where(om[..., None] > 0, rgb_a, rgb_b), 255 * alpha * mag[..., None]], -1)
         buf = io.BytesIO()
-        Image.fromarray(rgba.astype(np.uint8), "RGBA").save(buf, "WEBP", quality=55, alpha_quality=50, method=6)
+        Image.fromarray(rgba.astype(np.uint8), "RGBA").save(buf, "WEBP", quality=50, alpha_quality=HAZE_AQ, method=6)
         out.append(base64.b64encode(buf.getvalue()).decode())
     return out
 
@@ -284,8 +288,8 @@ def family(key):
 # --------------------------------------------------------------------------- svg
 
 DYE_SEEDS = [(CX + (R + d) * math.cos(math.radians(a)), CY - s * (R + d) * math.sin(math.radians(a)))
-             for s in (1, -1) for a, d in zip(np.linspace(98, 88, 8), np.linspace(0.6, 0.55 * R, 8))]
-RAKE_SEEDS = [(CX - 4 * R, CY + s * k * R) for s in (1, -1) for k in (4.0, 5.5, 7.5)]
+             for s in (1, -1) for a, d in zip(np.linspace(96, 89, 7), np.linspace(0.6, 0.5 * R, 7))]
+RAKE_SEEDS = [(CX - 4 * R, CY + s * k * R) for s in (1, -1) for k in (5.0, 6.5, 8.0)]
 
 
 def compute():
@@ -300,7 +304,7 @@ def compute():
     # fluid; frame M equals frame 0 shifted by M particles, so the jump back is invisible
     dye = [[rel_path(pix[f, s, ::-1]) for f in range(M + 1)] for s in range(n_dye)]
     # streak lines carry no dots, so they are drawn as loci of constant age; frame M == frame 0
-    rake = [[rel_path(pix[f, s, f + LIFE::-2][:LIFE // 2]) for f in range(M)] for s in range(n_dye, pix.shape[1])]
+    rake = [[rel_path(pix[f, s, f + LIFE::-1][:LIFE]) for f in range(M)] for s in range(n_dye, pix.shape[1])]
     om, box = vorticity(ux, uy)
     return dye, rake, om, box, seam
 
