@@ -141,14 +141,18 @@ SUB = 8       # RK2 substeps per frame
 SHOWN = 3.0   # seconds per shedding period on screen
 
 
-def trace(ux, uy, stride, seeds):
-    """Positions at frames 0..M of particles released from each seed at frames -LIFE..M.
+RELEASES = np.arange(-LIFE, M + 1)   # release frames of the particles on every path
 
-    Returns an array (M + 1, seeds, releases, 2); a particle sits on its seed until released.
+
+def trace(ux, uy, stride, starts):
+    """Positions at frames 0..M of particles released at frames -LIFE..M from `starts`.
+
+    `starts` has shape (paths, releases, 2). Returns (M + 1, paths, releases, 2); a particle
+    sits on its start point until released.
     """
     n = len(ux)
     delta = n * stride / M
-    rel = np.arange(-LIFE, M + 1)
+    rel = RELEASES
 
     def vel(t, p):
         s = (t / stride) % n
@@ -166,8 +170,8 @@ def trace(ux, uy, stride, seeds):
         return np.stack([bilinear(ux[i0]) * (1 - a) + bilinear(ux[i1]) * a,
                          bilinear(uy[i0]) * (1 - a) + bilinear(uy[i1]) * a], -1)
 
-    pos = np.repeat(np.asarray(seeds, float)[:, None, :], len(rel), 1)
-    out = np.empty((M + 1, len(seeds), len(rel), 2))
+    pos = np.array(starts, float)
+    out = np.empty((M + 1, len(pos), len(rel), 2))
     h = delta / SUB
     for j in range(-LIFE, M + 1):
         if j >= 0:
@@ -220,8 +224,8 @@ def vorticity(ux, uy):
     y, x = np.mgrid[0:NY, 0:NX]
     # fade out the wall's boundary layer, which would otherwise swamp the scale and glow blockily,
     # and everything upstream of the shoulders: only the wake is drawn
-    taper = (np.clip((np.hypot(x - CX, y - CY) - R - 1) / (0.3 * R), 0, 1)
-             * np.clip((x - CX + 0.2 * R) / (0.6 * R), 0, 1))
+    ring = np.clip((np.hypot(x - CX, y - CY) - R - 0.5) / (0.7 * R), 0, 1)
+    taper = ring * ring * (3 - 2 * ring) * np.clip((x - CX + R) / (1.2 * R), 0, 1)
     frames = []
     for f in range(M):
         s = f * n / M
@@ -297,8 +301,21 @@ def family(key):
 
 # --------------------------------------------------------------------------- svg
 
-DYE_SEEDS = [(CX + (R + d) * math.cos(math.radians(a)), CY - s * (R + d) * math.sin(math.radians(a)))
-             for s in (1, -1) for a, d in zip(np.linspace(97, 90, 7), np.linspace(0.5, 0.3 * R, 7))]
+# dye seeps out of the shoulders, ahead of separation: 7 paths per side, each spread over a band
+# of angles and wall distances (jittered per release phase, so frame M still matches frame 0)
+DYE_SITES = [(s, a, d) for s in (1, -1) for a, d in zip(np.linspace(100, 86, 7), np.linspace(0.6, 0.3 * R, 7))]
+
+
+def dye_starts():
+    rng = np.random.default_rng(7)
+    jitter_a = rng.uniform(-3.5, 3.5, (len(DYE_SITES), M))
+    jitter_d = rng.uniform(0.7, 1.3, (len(DYE_SITES), M))
+    phase = RELEASES % M
+    a = np.radians([[site[1]] for site in DYE_SITES] + jitter_a[:, phase])
+    r = R + np.array([[site[2]] for site in DYE_SITES]) * jitter_d[:, phase]
+    side = np.array([[site[0]] for site in DYE_SITES])
+    return np.stack([CX + r * np.cos(a), CY - side * r * np.sin(a)], -1)
+
 RAKE_SEEDS = [(CX - 4 * R, CY + s * k * R) for s in (1, -1) for k in (5.0, 6.5, 8.0)]
 
 
@@ -308,14 +325,15 @@ def compute():
     solid = (x - CX) ** 2 + (y - CY) ** 2 < R ** 2
     ux[:, solid] = 0
     uy[:, solid] = 0
-    pos = trace(ux, uy, stride, DYE_SEEDS + RAKE_SEEDS)
-    n_dye = len(DYE_SEEDS)
-    # dye not yet released waits just inside the wall, where the cylinder masks it out, so it
-    # seeps out of the surface on release instead of piling up visibly on its seed
-    seeds = np.array(DYE_SEEDS)
-    park = np.array([CX, CY]) + (R - 2) * (seeds - [CX, CY]) / np.hypot(*(seeds - [CX, CY]).T)[:, None]
+    dye0 = dye_starts()
+    rake0 = np.repeat(np.array(RAKE_SEEDS, float)[:, None], len(RELEASES), 1)
+    pos = trace(ux, uy, stride, np.concatenate([dye0, rake0]))
+    n_dye = len(dye0)
+    # dye not yet released waits just inside the wall, where the cylinder masks it out
+    centre = np.array([CX, CY])
+    park = centre + (R - 2) * (dye0 - centre) / np.linalg.norm(dye0 - centre, axis=-1, keepdims=True)
     for f in range(M + 1):
-        pos[f, :n_dye, LIFE + f + 1:] = park[:, None]
+        pos[f, :n_dye, LIFE + f + 1:] = park[:, LIFE + f + 1:]
     pix = to_px(pos)
     # dye: vertex k is always the particle released at frame M - k, so vertices move with the
     # fluid; frame M equals frame 0 shifted by M particles, so the jump back is invisible
@@ -360,8 +378,12 @@ def render(theme, dye, rake, om, box):
            '<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.17" stop-color="#fff"/>'
            '<stop offset="0.45" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0.4"/>'
            '</linearGradient>',
-           f'<mask id="m"><rect width="{W}" height="{H}" fill="url(#fade)"/>'
-           f'<circle cx="{ORIGIN[0]}" cy="{ORIGIN[1]}" r="{R * PX:g}"/></mask>',
+           f'<mask id="m"><rect width="{W}" height="{H}" fill="url(#fade)"/></mask>',
+           # the dye condenses out of the boundary layer: clear at the wall, full strength 0.7 R out
+           f'<radialGradient id="wall" gradientUnits="userSpaceOnUse" cx="{ORIGIN[0]}" cy="{ORIGIN[1]}" '
+           f'r="{1.7 * R * PX:g}"><stop offset="{1 / 1.7:.3f}"/><stop offset="1" stop-opacity="0"/></radialGradient>',
+           f'<mask id="md"><rect width="{W}" height="{H}" fill="url(#fade)"/>'
+           f'<rect width="{W}" height="{H}" fill="url(#wall)"/></mask>',
            *[marker.format(k=k, col=col) for k, col in enumerate((c["a"], c["b"]))],
            f"<style>{faces}</style>",
            "</defs>",
@@ -370,6 +392,7 @@ def render(theme, dye, rake, om, box):
     for frames in rake:
         out.append(f'<path d="{frames[0]}" stroke="{c["muted"]}" stroke-opacity="{c["line_op"]}" '
                    f'stroke-width="1.2" stroke-linejoin="round">{animate("d", frames + frames[:1])}</path>')
+    out.append('</g><g mask="url(#md)" fill="none">')
     for i, frames in enumerate(dye):
         k = 0 if i < len(dye) // 2 else 1
         out.append(f'<path d="{frames[0]}" stroke="none" opacity="{c["dye_op"]}" '
