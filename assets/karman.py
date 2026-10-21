@@ -113,8 +113,8 @@ def flow_field():
 
 # --------------------------------------------------------------------------- dye tracing
 
-M = 24        # animation frames per shedding period; dye is released once per frame
-LIFE = 70     # frames a dye particle is followed (long enough to leave the canvas)
+M = 20        # animation frames per shedding period; dye is released once per frame
+LIFE = 64     # frames a dye particle is followed (long enough to leave the canvas)
 SUB = 6       # RK2 substeps per frame
 SHOWN = 2.4   # seconds per shedding period on screen
 
@@ -166,13 +166,13 @@ def to_px(p):
     return np.stack([ORIGIN[0] + (p[..., 0] - CX) * PX, ORIGIN[1] + (p[..., 1] - CY) * PX], -1)
 
 
-def rel_path(xy):
+def rel_path(xy, digits=1):
     """Absolute move then relative segments: compact and interpolable by SMIL."""
-    x0, y0 = round(float(xy[0][0]), 1), round(float(xy[0][1]), 1)
+    x0, y0 = round(float(xy[0][0]), digits), round(float(xy[0][1]), digits)
     out, px, py = [f"M{x0:g} {y0:g}l"], x0, y0
     for x, y in xy[1:]:
-        x, y = round(float(x), 1), round(float(y), 1)
-        out.append(f"{x - px:.1f} {y - py:.1f}".replace(".0 ", " ").removesuffix(".0"))
+        x, y = round(float(x), digits), round(float(y), digits)
+        out.append(f"{round(x - px, digits):g} {round(y - py, digits):g}")
         px, py = x, y
     return " ".join(out)
 
@@ -185,8 +185,8 @@ def animate_d(frames):
 # --------------------------------------------------------------------------- svg
 
 DYE_SEEDS = [(CX + (R + d) * math.cos(math.radians(a)), CY - s * (R + d) * math.sin(math.radians(a)))
-             for s in (1, -1) for a, d in ((96, 1.0), (92, 2.5), (88, 4.5))]
-RAKE_SEEDS = [(CX - 4 * R, CY + s * k * R) for s in (1, -1) for k in (1.5, 2.5, 4.0, 6.0)]
+             for s in (1, -1) for a, d in ((97, 0.8), (95, 1.6), (93, 2.6), (90, 3.8), (87, 5.2))]
+RAKE_SEEDS = [(CX - 8 * R, CY + s * k * R) for s in (1, -1) for k in (4.5, 6.5, 9.0)]
 
 
 def compute():
@@ -199,9 +199,9 @@ def compute():
     n_dye = len(DYE_SEEDS)
     # dye: vertex k is the particle released at frame M - k, so vertices move with the fluid and
     # the shift by M particles at the loop point lands on an identical picture
-    dye = [[rel_path(pix[f, s, ::-1]) for f in range(M + 1)] for s in range(n_dye)]
-    # rake lines carry no dots, so they are drawn as loci of constant age (every other release)
-    rake = [[rel_path(pix[f, s, f + LIFE::-2][:LIFE // 2]) for f in range(M + 1)]
+    dye = [[rel_path(pix[f, s, ::-1], digits=0) for f in range(M + 1)] for s in range(n_dye)]
+    # rake lines carry no dots, so they are drawn as loci of constant age
+    rake = [[rel_path(pix[f, s, f + LIFE::-1][:LIFE]) for f in range(M + 1)]
             for s in range(n_dye, pix.shape[1])]
     return dye, rake, seam
 
@@ -230,8 +230,7 @@ def render(theme, dye, rake):
                    f'stroke-width="1.2">{animate_d(frames)}</path>')
     for i, frames in enumerate(dye):
         k = 0 if i < len(dye) // 2 else 1
-        col = (c["a"], c["b"])[k]
-        out.append(f'<path d="{frames[0]}" stroke="{col}" stroke-opacity="0.35" stroke-width="1" '
+        out.append(f'<path d="{frames[0]}" stroke="none" '
                    f'marker-start="url(#d{k})" marker-mid="url(#d{k})" marker-end="url(#d{k})">'
                    f'{animate_d(frames)}</path>')
     out.append("</g>")
