@@ -222,10 +222,11 @@ def vorticity(ux, uy):
     y0, y1 = CY - half, CY + half
     x1 -= (x1 - x0) % HAZE_BLOCK
     y, x = np.mgrid[0:NY, 0:NX]
-    # fade out the wall's boundary layer, which would otherwise swamp the scale and glow blockily,
-    # and everything upstream of the shoulders: only the wake is drawn
-    ring = np.clip((np.hypot(x - CX, y - CY) - R - 0.5) / (0.7 * R), 0, 1)
-    taper = ring * ring * (3 - 2 * ring) * np.clip((x - CX + R) / (1.2 * R), 0, 1)
+    # the haze only marks vortices as they roll up: the thin shear layers on the shoulders would
+    # render as stiff blocks at this texel size (the dye shows them anyway), so it fades in with
+    # distance from the cylinder, over a ring from 1.2 R to 3.2 R
+    ramp = np.clip((np.hypot(x - CX, y - CY) - 1.2 * R) / (2 * R), 0, 1)
+    taper = ramp * ramp * (3 - 2 * ramp)
     frames = []
     for f in range(M):
         s = f * n / M
