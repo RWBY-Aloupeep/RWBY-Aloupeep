@@ -5,7 +5,7 @@
 
 <p align="center">
   <em>
-    Physics-Based Simulation · Differentiable Simulation · Graphics & Robotics · AI
+    Physics-Based Simulation · Graphics & Robotics · AI
   </em>
 </p>
 
