@@ -9,7 +9,7 @@ stream function is invariant under conformal maps, every frame is an exact
 solution of Laplace's equation.
 
 Usage:  python assets/banner.py   (writes banner-{dark,light}.svg)
-Needs fonttools and brotli. The OFL fonts (Inter, JetBrains Mono) are fetched
+Needs fonttools and brotli. The OFL font Inter is fetched
 once with `npm pack` into assets/.fontcache and subset into the SVG, so the
 text renders the same everywhere.
 """
@@ -52,8 +52,6 @@ FONTS = {  # key: (npm package, file inside it, css family, fallback)
              "'Segoe UI', Helvetica, Arial, sans-serif"),
     "sans-b": ("@fontsource/inter@5.3.0", "package/files/inter-latin-600-normal.woff2", "pf-sans-b",
                "'Segoe UI', Helvetica, Arial, sans-serif"),
-    "mono": ("@fontsource/jetbrains-mono@5.3.0", "package/files/jetbrains-mono-latin-400-normal.woff2", "pf-mono",
-             "Menlo, Consolas, monospace"),
 }
 
 
@@ -212,12 +210,11 @@ def morph(frames):
 
 NAME = "Diwen (Steven) Xu"
 TAGLINE = "Physics-Based Simulation · Graphics & Robotics · AI"
-CAPTION = "potential flow past a morphing Joukowski airfoil"
 
 
 def render(theme, lines, speeds, bodies):
     c = THEMES[theme]
-    faces = font_face("sans-b", NAME) + font_face("sans", TAGLINE) + font_face("mono", CAPTION)
+    faces = font_face("sans-b", NAME) + font_face("sans", TAGLINE)
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" '
            f'role="img" aria-label="{NAME}: {TAGLINE.replace("&", "&amp;")}. Potential flow past a shape '
            f'morphing from a cylinder into an airfoil.">',
@@ -250,8 +247,6 @@ def render(theme, lines, speeds, bodies):
             f'fill="{c["text"]}">{NAME}</text>',
             f'<text x="82" y="304" font-family="{family("sans")}" font-size="19" '
             f'fill="{c["muted"]}">{TAGLINE.replace("&", "&amp;")}</text>',
-            f'<text x="82" y="{H - 24}" font-family="{family("mono")}" font-size="13" '
-            f'fill="{c["muted"]}" fill-opacity="0.8">{CAPTION}</text>',
             "</svg>"]
     return "\n".join(out) + "\n"
 
