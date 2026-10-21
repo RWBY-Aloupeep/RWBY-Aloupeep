@@ -218,8 +218,10 @@ def vorticity(ux, uy):
     y0, y1 = CY - half, CY + half
     x1 -= (x1 - x0) % HAZE_BLOCK
     y, x = np.mgrid[0:NY, 0:NX]
-    # fade out the wall's boundary layer, which would otherwise swamp the scale and glow blockily
-    taper = np.clip((np.hypot(x - CX, y - CY) - R - 1) / (0.3 * R), 0, 1)
+    # fade out the wall's boundary layer, which would otherwise swamp the scale and glow blockily,
+    # and everything upstream of the shoulders: only the wake is drawn
+    taper = (np.clip((np.hypot(x - CX, y - CY) - R - 1) / (0.3 * R), 0, 1)
+             * np.clip((x - CX + 0.2 * R) / (0.6 * R), 0, 1))
     frames = []
     for f in range(M):
         s = f * n / M
@@ -228,6 +230,8 @@ def vorticity(ux, uy):
         u = ux[i0] * (1 - a) + ux[i1] * a
         v = uy[i0] * (1 - a) + uy[i1] * a
         om = (np.gradient(v, axis=1) - np.gradient(u, axis=0)) * taper
+        for axis in (0, 1):  # binomial blur, so the upscaled texels blend into soft blobs
+            om = sum(w * np.roll(om, k, axis) for k, w in zip(range(-2, 3), (1 / 16, 4 / 16, 6 / 16, 4 / 16, 1 / 16)))
         om = om[y0:y1, x0:x1]
         frames.append(om.reshape((y1 - y0) // HAZE_BLOCK, HAZE_BLOCK, -1, HAZE_BLOCK).mean((1, 3)))
     box = (ORIGIN[0] + (x0 - CX - 0.5) * PX, ORIGIN[1] + (y0 - CY - 0.5) * PX, (x1 - x0) * PX, (y1 - y0) * PX)
@@ -244,7 +248,13 @@ def haze_images(frames, c, alpha):
         # smoothstep from 8% to 60% of the reference: the lattice's faint acoustic noise drops out
         t = np.clip((np.abs(om) / ref - 0.08) / 0.52, 0, 1)
         mag = t * t * (3 - 2 * t)
-        rgba = np.concatenate([np.where(om[..., None] > 0, rgb_a, rgb_b), 255 * alpha * mag[..., None]], -1)
+        # hue from a widely blurred sign, so even transparent texels carry a smooth colour:
+        # WebP subsamples chroma, and a speckled sign there would bleed cyan into purple
+        wide = om
+        for _ in range(4):
+            wide = sum(np.roll(np.roll(wide, i, 0), j, 1) for i in (-1, 0, 1) for j in (-1, 0, 1)) / 9
+        hue = (0.5 + 0.5 * np.tanh(wide / (0.05 * ref)))[..., None]
+        rgba = np.concatenate([rgb_b + hue * (rgb_a - rgb_b), 255 * alpha * mag[..., None]], -1)
         buf = io.BytesIO()
         Image.fromarray(rgba.astype(np.uint8), "RGBA").save(buf, "WEBP", quality=50, alpha_quality=HAZE_AQ, method=6)
         out.append(base64.b64encode(buf.getvalue()).decode())
@@ -288,7 +298,7 @@ def family(key):
 # --------------------------------------------------------------------------- svg
 
 DYE_SEEDS = [(CX + (R + d) * math.cos(math.radians(a)), CY - s * (R + d) * math.sin(math.radians(a)))
-             for s in (1, -1) for a, d in zip(np.linspace(96, 89, 7), np.linspace(0.6, 0.5 * R, 7))]
+             for s in (1, -1) for a, d in zip(np.linspace(97, 90, 7), np.linspace(0.5, 0.3 * R, 7))]
 RAKE_SEEDS = [(CX - 4 * R, CY + s * k * R) for s in (1, -1) for k in (5.0, 6.5, 8.0)]
 
 
@@ -298,8 +308,15 @@ def compute():
     solid = (x - CX) ** 2 + (y - CY) ** 2 < R ** 2
     ux[:, solid] = 0
     uy[:, solid] = 0
-    pix = to_px(trace(ux, uy, stride, DYE_SEEDS + RAKE_SEEDS))
+    pos = trace(ux, uy, stride, DYE_SEEDS + RAKE_SEEDS)
     n_dye = len(DYE_SEEDS)
+    # dye not yet released waits just inside the wall, where the cylinder masks it out, so it
+    # seeps out of the surface on release instead of piling up visibly on its seed
+    seeds = np.array(DYE_SEEDS)
+    park = np.array([CX, CY]) + (R - 2) * (seeds - [CX, CY]) / np.hypot(*(seeds - [CX, CY]).T)[:, None]
+    for f in range(M + 1):
+        pos[f, :n_dye, LIFE + f + 1:] = park[:, None]
+    pix = to_px(pos)
     # dye: vertex k is always the particle released at frame M - k, so vertices move with the
     # fluid; frame M equals frame 0 shifted by M particles, so the jump back is invisible
     dye = [[rel_path(pix[f, s, ::-1]) for f in range(M + 1)] for s in range(n_dye)]
@@ -343,7 +360,8 @@ def render(theme, dye, rake, om, box):
            '<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.17" stop-color="#fff"/>'
            '<stop offset="0.45" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0.4"/>'
            '</linearGradient>',
-           f'<mask id="m"><rect width="{W}" height="{H}" fill="url(#fade)"/></mask>',
+           f'<mask id="m"><rect width="{W}" height="{H}" fill="url(#fade)"/>'
+           f'<circle cx="{ORIGIN[0]}" cy="{ORIGIN[1]}" r="{R * PX:g}"/></mask>',
            *[marker.format(k=k, col=col) for k, col in enumerate((c["a"], c["b"]))],
            f"<style>{faces}</style>",
            "</defs>",
